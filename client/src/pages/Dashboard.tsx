@@ -13,8 +13,8 @@ import {
   Toast,
   Dropdown,
 } from "react-bootstrap";
-import { fetchStats, toggleAutoMode, waterNow } from "../lib/api"; // ✅ fixed import
-import { useNavigate } from "react-router-dom";
+import { fetchStats, toggleAutoMode, waterNow } from "../lib/api";
+import { useNavigate, Link } from "react-router-dom";
 import {
   LineChart,
   Line,
@@ -31,10 +31,9 @@ type Stats = {
   waterLevel: number;
   temperature: number;
   autoMode: boolean;
-  lastWatered: string; // ISO string from backend
+  lastWatered: string;
 };
 
-// Dummy chart data
 const dummyHistory = Array.from({ length: 12 }, (_, i) => ({
   time: `${i + 1}:00`,
   moisture: Math.max(
@@ -47,6 +46,53 @@ const dummyHistory = Array.from({ length: 12 }, (_, i) => ({
   ),
 }));
 
+// 🔹 Small reusable component for stat cards
+const StatCard = ({ title, value, unit = "%", variant }: any) => (
+  <Card className="h-100 shadow-lg border-0 rounded-4 text-center">
+    <Card.Body>
+      <Card.Title>{title}</Card.Title>
+      {value === null ? (
+        <Spinner animation="border" />
+      ) : (
+        <>
+          <h2 className={`text-${variant}`}>
+            {value}
+            {unit}
+          </h2>
+          {unit === "%" && (
+            <ProgressBar
+              now={value}
+              variant={variant}
+              animated
+              label={`${value}%`}
+            />
+          )}
+        </>
+      )}
+    </Card.Body>
+  </Card>
+);
+
+// 🔹 Chart component
+const HistoryChart = ({ data, label, color, datakey }: any) => (
+  <Card className="shadow-lg border-0 rounded-4">
+    <Card.Header className={`text-white`} style={{ background: color }}>
+      {label}
+    </Card.Header>
+    <Card.Body style={{ height: 300 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="time" />
+          <YAxis />
+          <Tooltip />
+          <Line type="monotone" dataKey={datakey} stroke="#fff" dot={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </Card.Body>
+  </Card>
+);
+
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(false);
@@ -58,13 +104,11 @@ export default function Dashboard() {
 
   const load = async () => {
     try {
-      const data = await fetchStats();
-      setStats(data);
-    } catch (e) {
-      showMessage("⚠️ Cannot reach backend at http://127.0.0.1:8000");
+      setStats(await fetchStats());
+    } catch {
+      showMessage("⚠️ Cannot reach backend");
     }
   };
-
   useEffect(() => {
     load();
   }, []);
@@ -80,24 +124,20 @@ export default function Dashboard() {
     try {
       const res = await waterNow();
       showMessage(res.message || "💧 Watering triggered!");
-      await load(); // refresh stats
+      await load();
     } finally {
       setLoading(false);
       setTimeout(() => setShowWateringPopup(false), 2500);
     }
   };
 
-  const onAutoMode = async (newValue: boolean) => {
+  const onAutoMode = async () => {
     setAutoLoading(true);
     try {
       const res = await toggleAutoMode();
+      setStats((prev) => (prev ? { ...prev, autoMode: res.autoMode } : prev));
       showMessage(res.message || "🌿 Auto mode toggled");
-      setStats((prev) =>
-        prev ? { ...prev, autoMode: res.autoMode ?? newValue } : prev
-      );
-    } catch (err) {
-      setStats((prev) => (prev ? { ...prev, autoMode: !newValue } : prev));
-      console.error("Failed to toggle auto mode:", err);
+    } catch {
       showMessage("⚠️ Failed to toggle auto mode");
     } finally {
       setAutoLoading(false);
@@ -107,32 +147,6 @@ export default function Dashboard() {
   const logout = () => {
     localStorage.removeItem("token");
     nav("/login");
-  };
-
-  const cardVariants = {
-    hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.6 } },
-  };
-
-  const getProgressVariant = (type: "moisture" | "level", value: number) => {
-    if (type === "moisture") {
-      if (value < 30) return "danger";
-      if (value < 60) return "warning";
-      return "success";
-    }
-    if (type === "level") {
-      if (value < 25) return "danger";
-      if (value < 50) return "warning";
-      return "info";
-    }
-    return "success";
-  };
-
-  const getPlantStyle = () => {
-    if (!stats) return {};
-    const size = 50 + stats.soilMoisture / 2;
-    const color = stats.soilMoisture < 30 ? "#c62828" : "#2e7d32";
-    return { fontSize: size, color, transition: "all 0.5s ease" };
   };
 
   return (
@@ -146,271 +160,142 @@ export default function Dashboard() {
       >
         <Container>
           <Navbar.Brand className="fw-bold text-white">
-            🌱 IOT Based Watering System
+            🌱 IOT Watering
           </Navbar.Brand>
-          <Nav className="ms-auto d-flex align-items-center gap-3">
+          <Nav className="me-auto">
+            <Nav.Link as={Link} to="/dashboard">
+              🏠 Dashboard
+            </Nav.Link>
+            <Nav.Link as={Link} to="/schedules">
+              📅 Schedules
+            </Nav.Link>
+            <Nav.Link as={Link} to="/logs">
+              📜 Logs
+            </Nav.Link>
+          </Nav>
+          <Nav>
             <Dropdown align="end">
               <Dropdown.Toggle variant="light" size="sm">
-                More Actions
+                More
               </Dropdown.Toggle>
               <Dropdown.Menu>
-                <Dropdown.Item disabled>📅 Set Up Schedule</Dropdown.Item>
                 <Dropdown.Item disabled>🎛️ Customize</Dropdown.Item>
-                <Dropdown.Item disabled>👤 Profile</Dropdown.Item>
-                <Dropdown.Item disabled>⚙️ Settings</Dropdown.Item>
               </Dropdown.Menu>
             </Dropdown>
-            <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
-              <Button variant="light" size="sm" onClick={logout}>
-                Logout
-              </Button>
-            </motion.div>
+            <Button variant="light" size="sm" onClick={logout} className="ms-2">
+              Logout
+            </Button>
           </Nav>
         </Container>
       </Navbar>
 
-      <Container className="pb-5">
+      <Container>
         {/* Plant Avatar */}
-        <Row className="mb-4 justify-content-center text-center">
-          <Col md={12}>
+        <Row className="mb-4 text-center">
+          <Col>
             <motion.div
-              animate={getPlantStyle()}
-              style={{ fontWeight: "bold" }}
+              style={{
+                fontSize: 50 + (stats?.soilMoisture ?? 0) / 2,
+                color:
+                  stats?.soilMoisture && stats.soilMoisture < 30
+                    ? "#c62828"
+                    : "#2e7d32",
+                transition: "all 0.5s ease",
+              }}
             >
               🌿
             </motion.div>
-            <div className="text-muted mt-2">Your plant's current health</div>
+            <div className="text-muted">Your plant's current health</div>
           </Col>
         </Row>
 
-        {/* Stats Row */}
+        {/* Stats */}
         <Row className="g-4">
-          {/* Soil Moisture */}
           <Col md={4}>
-            <motion.div
-              variants={cardVariants}
-              initial="hidden"
-              animate="visible"
-            >
-              <Card className="h-100 shadow-lg border-0 rounded-4">
-                <Card.Body>
-                  <Card.Title>🌾 Soil Moisture</Card.Title>
-                  {stats === null ? (
-                    <Spinner animation="border" />
-                  ) : (
-                    <>
-                      <h2 className="text-success">{stats.soilMoisture}%</h2>
-                      <ProgressBar
-                        now={stats.soilMoisture}
-                        variant={getProgressVariant(
-                          "moisture",
-                          stats.soilMoisture
-                        )}
-                        animated
-                        label={`${stats.soilMoisture}%`}
-                      />
-                    </>
-                  )}
-                </Card.Body>
-              </Card>
-            </motion.div>
+            <StatCard
+              title="🌾 Soil Moisture"
+              value={stats?.soilMoisture}
+              variant="success"
+            />
           </Col>
-
-          {/* Water Tank */}
           <Col md={4}>
-            <motion.div
-              variants={cardVariants}
-              initial="hidden"
-              animate="visible"
-            >
-              <Card className="h-100 shadow-lg border-0 rounded-4">
-                <Card.Body>
-                  <Card.Title>💧 Water Tank Level</Card.Title>
-                  {stats === null ? (
-                    <Spinner animation="border" />
-                  ) : (
-                    <>
-                      <h2 className="text-info">{stats.waterLevel}%</h2>
-                      <ProgressBar
-                        now={stats.waterLevel}
-                        variant={getProgressVariant("level", stats.waterLevel)}
-                        animated
-                        label={`${stats.waterLevel}%`}
-                      />
-                    </>
-                  )}
-                </Card.Body>
-              </Card>
-            </motion.div>
+            <StatCard
+              title="💧 Water Tank"
+              value={stats?.waterLevel}
+              variant="info"
+            />
           </Col>
-
-          {/* Temperature */}
           <Col md={4}>
-            <motion.div
-              variants={cardVariants}
-              initial="hidden"
-              animate="visible"
-            >
-              <Card className="h-100 shadow-lg border-0 rounded-4">
-                <Card.Body>
-                  <Card.Title>🌡️ Temperature</Card.Title>
-                  {stats === null ? (
-                    <Spinner animation="border" />
-                  ) : (
-                    <h2 className="text-danger">{stats.temperature}°C</h2>
-                  )}
-                </Card.Body>
-              </Card>
-            </motion.div>
+            <StatCard
+              title="🌡️ Temperature"
+              value={stats?.temperature}
+              unit="°C"
+              variant="danger"
+            />
           </Col>
         </Row>
 
-        {/* Controls Row */}
-        <Row className="g-4 mt-1 d-flex align-items-stretch">
-          {/* Auto Mode */}
-          <Col md={6} className="d-flex">
-            <motion.div
-              variants={cardVariants}
-              initial="hidden"
-              animate="visible"
-              className="flex-fill"
-            >
-              <Card className="h-100 shadow-lg border-0 rounded-4 text-center">
-                <Card.Body className="d-flex flex-column justify-content-center">
-                  <Card.Title>🤖 Auto Mode</Card.Title>
-                  {stats === null ? (
-                    <Spinner animation="border" />
-                  ) : (
-                    <div className="d-flex justify-content-center align-items-center gap-3">
-                      <Form.Check
-                        type="switch"
-                        id="auto-mode-switch"
-                        label={stats?.autoMode ? "Enabled" : "Disabled"}
-                        checked={!!stats?.autoMode}
-                        disabled={autoLoading}
-                        onChange={async () => {
-                          const newValue = !stats?.autoMode;
-                          setStats((prev) =>
-                            prev ? { ...prev, autoMode: newValue } : prev
-                          );
-                          await onAutoMode(newValue);
-                        }}
-                        className="big-switch"
-                      />
-                      {autoLoading && (
-                        <Spinner
-                          animation="border"
-                          size="sm"
-                          className="text-success"
-                        />
-                      )}
-                    </div>
-                  )}
-                </Card.Body>
-              </Card>
-            </motion.div>
+        {/* Controls */}
+        <Row className="g-4 mt-1">
+          <Col md={6}>
+            <Card className="h-100 shadow-lg border-0 rounded-4 text-center">
+              <Card.Body>
+                <Card.Title>🤖 Auto Mode</Card.Title>
+                <Form.Check
+                  type="switch"
+                  id="auto-mode"
+                  label={stats?.autoMode ? "Enabled" : "Disabled"}
+                  checked={!!stats?.autoMode}
+                  disabled={autoLoading}
+                  onChange={onAutoMode}
+                />
+                {autoLoading && <Spinner animation="border" size="sm" />}
+              </Card.Body>
+            </Card>
           </Col>
-
-          {/* Water Now */}
-          <Col md={6} className="d-flex">
-            <motion.div
-              variants={cardVariants}
-              initial="hidden"
-              animate="visible"
-              className="flex-fill"
-            >
-              <Card className="h-100 shadow-lg border-0 rounded-4 text-center">
-                <Card.Body className="d-flex flex-column justify-content-center">
-                  <Card.Title>💦 Water Now</Card.Title>
-                  <Button
-                    onClick={onWaterNow}
-                    disabled={loading}
-                    variant="success"
-                    className="px-4 py-2"
-                  >
-                    {loading ? (
-                      <>
-                        <Spinner as="span" animation="border" size="sm" />{" "}
-                        Watering...
-                      </>
-                    ) : (
-                      "💦 Water Now"
-                    )}
-                  </Button>
-                  {stats && (
-                    <div className="text-muted mt-2">
-                      Last watered:{" "}
-                      {stats.lastWatered
-                        ? new Date(stats.lastWatered).toLocaleString()
-                        : "Never"}
-                    </div>
+          <Col md={6}>
+            <Card className="h-100 shadow-lg border-0 rounded-4 text-center">
+              <Card.Body>
+                <Card.Title>💦 Water Now</Card.Title>
+                <Button
+                  onClick={onWaterNow}
+                  disabled={loading}
+                  variant="success"
+                >
+                  {loading ? (
+                    <Spinner as="span" animation="border" size="sm" />
+                  ) : (
+                    "💦 Water Now"
                   )}
-                </Card.Body>
-              </Card>
-            </motion.div>
+                </Button>
+                <div className="text-muted mt-2">
+                  Last watered:{" "}
+                  {stats?.lastWatered
+                    ? new Date(stats.lastWatered).toLocaleString()
+                    : "Never"}
+                </div>
+              </Card.Body>
+            </Card>
           </Col>
         </Row>
 
         {/* Charts */}
         <Row className="g-4 mt-1">
           <Col md={6}>
-            <motion.div
-              variants={cardVariants}
-              initial="hidden"
-              animate="visible"
-            >
-              <Card className="shadow-lg border-0 rounded-4">
-                <Card.Header className="bg-success bg-opacity-75 text-white">
-                  Moisture Trend
-                </Card.Header>
-                <Card.Body style={{ height: 300 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={dummyHistory}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="time" />
-                      <YAxis />
-                      <Tooltip />
-                      <Line
-                        type="monotone"
-                        dataKey="moisture"
-                        stroke="#4caf50"
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </Card.Body>
-              </Card>
-            </motion.div>
+            <HistoryChart
+              data={dummyHistory}
+              label="Moisture Trend"
+              color="#4caf50"
+              datakey="moisture"
+            />
           </Col>
-
           <Col md={6}>
-            <motion.div
-              variants={cardVariants}
-              initial="hidden"
-              animate="visible"
-            >
-              <Card className="shadow-lg border-0 rounded-4">
-                <Card.Header className="bg-info bg-opacity-75 text-white">
-                  Tank Level History
-                </Card.Header>
-                <Card.Body style={{ height: 300 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={dummyHistory}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="time" />
-                      <YAxis />
-                      <Tooltip />
-                      <Line
-                        type="monotone"
-                        dataKey="level"
-                        stroke="#0288d1"
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </Card.Body>
-              </Card>
-            </motion.div>
+            <HistoryChart
+              data={dummyHistory}
+              label="Tank Level History"
+              color="#0288d1"
+              datakey="level"
+            />
           </Col>
         </Row>
 
@@ -429,71 +314,16 @@ export default function Dashboard() {
         <AnimatePresence>
           {showWateringPopup && (
             <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              transition={{ duration: 0.4 }}
-              style={{
-                position: "fixed",
-                top: 0,
-                left: 0,
-                width: "100vw",
-                height: "100vh",
-                background: "rgba(0,0,0,0.4)", // overlay
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                zIndex: 9999,
-              }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="d-flex justify-content-center align-items-center position-fixed top-0 start-0 w-100 h-100"
+              style={{ background: "rgba(0,0,0,0.4)", zIndex: 9999 }}
             >
-              <motion.div
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 20, opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                style={{
-                  background: "#4caf50",
-                  color: "white",
-                  padding: "2rem 3rem",
-                  borderRadius: "1rem",
-                  fontSize: "1.5rem",
-                  textAlign: "center",
-                  boxShadow: "0px 0px 25px rgba(0,0,0,0.4)",
-                  minWidth: "300px",
-                }}
-              >
-                <div className="mb-3">
-                  <Spinner animation="border" role="status" variant="light" />
-                </div>
-                💦 Watering in Progress...
-                <div
-                  style={{
-                    position: "relative",
-                    height: "40px",
-                    marginTop: "1rem",
-                  }}
-                >
-                  {[0, 1, 2].map((i) => (
-                    <motion.div
-                      key={i}
-                      animate={{ y: [0, 20, 0], opacity: [0.5, 1, 0] }}
-                      transition={{
-                        repeat: Infinity,
-                        duration: 1 + i * 0.2,
-                        delay: i * 0.2,
-                      }}
-                      style={{
-                        position: "absolute",
-                        left: `${30 + i * 30}%`,
-                        width: "10px",
-                        height: "10px",
-                        borderRadius: "50%",
-                        backgroundColor: "#2196f3",
-                      }}
-                    />
-                  ))}
-                </div>
-              </motion.div>
+              <div className="bg-success text-white p-4 rounded">
+                <Spinner animation="border" role="status" variant="light" />
+                <div>💦 Watering in Progress...</div>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

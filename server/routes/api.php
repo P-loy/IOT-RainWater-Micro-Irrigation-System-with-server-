@@ -6,8 +6,10 @@ use Illuminate\Support\Facades\Hash;
 use App\Models\User;
 use App\Http\Controllers\Api\DeviceController;
 use App\Http\Controllers\PlantController;
-
-
+use App\Http\Controllers\WateringLogController;
+use App\Http\Controllers\WateringScheduleController;
+use App\Http\Controllers\WateringController;
+use App\Models\WateringLog;
 
 // Auth routes
 Route::post('/register', function (Request $request) {
@@ -53,8 +55,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Protected device routes
     Route::get('/stats', [DeviceController::class, 'stats']);
-    Route::post('/water-now', [DeviceController::class, 'waterNow']);
+    Route::post('/water-now', [WateringController::class, 'waterNow']);
     Route::post('/toggle-auto', [DeviceController::class, 'toggleAutoMode']);
+
+    // Protected schedule and log routes
+    Route::apiResource('schedules', WateringScheduleController::class);
+    Route::apiResource('logs', WateringLogController::class);
+    Route::post('/logs', [WateringLogController::class, 'store']); // for Water Now
+
 
 
 });
