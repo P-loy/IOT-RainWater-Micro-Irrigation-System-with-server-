@@ -11,7 +11,8 @@ class WateringSchedule extends Model
 
     protected $fillable = [
         'start_time',   // e.g. "08:00"
-        'duration',     // minutes
+        'duration',     // minutes (legacy)
+        'liters',       // total liters to deliver
         'days_of_week', // e.g. "Mon,Wed,Fri"
         'user_id',      // link schedule to a user
     ];

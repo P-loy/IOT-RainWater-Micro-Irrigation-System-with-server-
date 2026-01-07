@@ -8,59 +8,147 @@ import {
   Nav,
   Row,
   Form,
+  InputGroup,
   Spinner,
   Toast,
   Table,
   Modal,
 } from "react-bootstrap";
-import { Link } from "react-router-dom";
-import axios from "axios";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { rtdb } from "../firebaseConfig";
+import { ref, set, onValue, update, remove, get } from "firebase/database";
 import { motion } from "framer-motion";
 
+const styles = `
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
+
+  body {
+    background-color: #bdffc4; /* Soft Mint Cream */
+    color: #2d3632ff;
+    font-family: 'Poppins', sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: #A7C4BC; border-radius: 10px; }
+
+  /* Glassmorphism Card Style */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+    border-radius: 24px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  
+  .glass-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.12);
+  }
+
+  /* Floating Navbar */
+  .floating-nav {
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(10px);
+    border-radius: 50px;
+    margin-top: 20px;
+    padding: 10px 30px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+  }
+
+  .brand-text {
+    background: -webkit-linear-gradient(45deg, #2d6a4f, #40916c);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800;
+  }
+
+  .nav-active {
+    color: #20c997 !important;
+    font-weight: 700;
+  }
+
+  /* Custom Switch */
+  .form-switch .form-check-input {
+    width: 3em;
+    height: 1.5em;
+    background-color: #e9ecef;
+    border-color: #dee2e6;
+  }
+  .form-switch .form-check-input:checked {
+    background-color: #52b788;
+    border-color: #52b788;
+  }
+`;
+
 type Schedule = {
-  id: number;
+  id: string;
   start_time: string;
-  duration: number;
   days_of_week?: string;
 };
 
 export default function SchedulePage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [startTime, setStartTime] = useState("");
-  const [duration, setDuration] = useState(0);
   const [daysOfWeek, setDaysOfWeek] = useState("");
   const [loading, setLoading] = useState(false);
+  const [addLoading, setAddLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showToast, setShowToast] = useState(false);
+
+  useEffect(() => {
+    const styleSheet = document.createElement("style");
+    styleSheet.innerText = styles;
+    document.head.appendChild(styleSheet);
+
+    return () => {
+      document.head.removeChild(styleSheet);
+    };
+  }, []);
 
   // Edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
 
-  const token = localStorage.getItem("token");
+  const location = useLocation();
+  const nav = useNavigate();
 
-  const api = axios.create({
-    baseURL: "http://127.0.0.1:8000/api",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+  // We'll use Firebase RTDB for schedule storage (esp/schedules)
 
-  // Fetch schedules
-  const fetchSchedules = async () => {
-    try {
-      setLoading(true);
-      const res = await api.get("/schedules");
-      setSchedules(res.data);
-    } catch (err) {
-      showMessage("⚠️ Failed to fetch schedules");
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Listen for schedules in RTDB (esp/schedules)
   useEffect(() => {
-    fetchSchedules();
+    setLoading(true);
+    const schedulesRef = ref(rtdb, "esp/schedules");
+    const unsub = onValue(
+      schedulesRef,
+      (snapshot) => {
+        const val = snapshot.val();
+        const list: Schedule[] = [];
+        if (val) {
+          Object.entries(val).forEach(([key, v]) => {
+            const s: any = v as any;
+            list.push({
+              id: key,
+              start_time: s.start_time,
+              days_of_week: s.days_of_week ?? "",
+            });
+          });
+        }
+        setSchedules(list);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("RTDB listen error", err);
+        showMessage("⚠️ Failed to load schedules from RTDB");
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      unsub();
+    };
   }, []);
 
   const showMessage = (msg: string) => {
@@ -68,24 +156,68 @@ export default function SchedulePage() {
     setShowToast(true);
   };
 
-  // Add Schedule
+  // Helper to toggle a weekday in comma-separated daysOfWeek
+  const toggleDay = (day: string) => {
+    setDaysOfWeek((prev) => {
+      const arr = prev
+        ? prev
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+      const idx = arr.indexOf(day);
+      if (idx === -1) arr.push(day);
+      else arr.splice(idx, 1);
+      return arr.join(",");
+    });
+  };
+
+  // Add Schedule -> write directly to RTDB under esp/schedules with numeric id starting at 1
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAddLoading(true);
     try {
-      const res = await api.post("/schedules", {
-        start_time: startTime,
-        duration,
-        days_of_week: daysOfWeek,
+      const schedulesRef = ref(rtdb, "esp/schedules");
+      // Determine next numeric ID (1-based)
+      const snap = await get(schedulesRef);
+      let nextId = "1";
+      if (snap.exists()) {
+        const val: Record<string, any> = snap.val();
+        const nums = Object.keys(val)
+          .map((k) => parseInt(k, 10))
+          .filter((n) => !isNaN(n));
+        const max = nums.length ? Math.max(...nums) : 0;
+        nextId = String(max + 1);
+      }
+
+      const payload = { start_time: startTime, days_of_week: daysOfWeek };
+      await set(ref(rtdb, `esp/schedules/${nextId}`), payload);
+      showMessage("✅ Schedule added to RTDB");
+
+      // Log event
+      const timestamp = new Date().toISOString();
+      await set(ref(rtdb, `events/schedules/${Date.now()}`), {
+        timestamp,
+        action: "add",
+        scheduleId: nextId,
+        schedule: payload,
+        message: `Schedule ${nextId} added (${startTime})`,
       });
-      setSchedules((prev) => [...prev, res.data]);
-      showMessage("✅ Schedule added");
+
+      // Clear form
       setStartTime("");
-      setDuration(0);
       setDaysOfWeek("");
     } catch (err) {
-      showMessage("⚠️ Failed to save schedule");
+      console.error("Failed to write schedule to RTDB", err);
+      showMessage("⚠️ Failed to save schedule to RTDB");
+    } finally {
+      setAddLoading(false);
     }
   };
+
+  // ---------- UI: Improved Add Schedule Form ----------
+  // Replaces existing form markup with grouped time/duration and weekday buttons
+  // (Markup change below in the Add Form Card)
 
   // Open Edit Modal
   const handleEdit = (s: Schedule) => {
@@ -93,33 +225,52 @@ export default function SchedulePage() {
     setShowEditModal(true);
   };
 
-  // Update Schedule
+  // Update Schedule in RTDB
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSchedule) return;
 
     try {
-      const res = await api.put(
-        `/schedules/${editingSchedule.id}`,
-        editingSchedule
-      );
-      setSchedules((prev) =>
-        prev.map((s) => (s.id === editingSchedule.id ? res.data : s))
-      );
-      showMessage("✅ Schedule updated");
+      const payload = {
+        start_time: editingSchedule.start_time,
+        days_of_week: editingSchedule.days_of_week ?? "",
+      };
+      await update(ref(rtdb, `esp/schedules/${editingSchedule.id}`), payload);
+      showMessage("✅ Schedule updated in RTDB");
+
+      // Log event
+      const timestamp = new Date().toISOString();
+      await set(ref(rtdb, `events/schedules/${Date.now()}`), {
+        timestamp,
+        action: "edit",
+        scheduleId: editingSchedule.id,
+        schedule: payload,
+        message: `Schedule ${editingSchedule.id} updated (${editingSchedule.start_time})`,
+      });
+
       setShowEditModal(false);
     } catch (err) {
+      console.error("Failed to update schedule in RTDB", err);
       showMessage("⚠️ Failed to update schedule");
     }
   };
 
-  // Delete Schedule
-  const handleDelete = async (id: number) => {
+  // Delete Schedule from RTDB
+  const handleDelete = async (id: string) => {
     try {
-      await api.delete(`/schedules/${id}`);
-      setSchedules((prev) => prev.filter((s) => s.id !== id));
-      showMessage("🗑️ Schedule deleted");
-    } catch {
+      await remove(ref(rtdb, `esp/schedules/${id}`));
+      showMessage("🗑️ Schedule deleted from RTDB");
+
+      // Log event
+      const timestamp = new Date().toISOString();
+      await set(ref(rtdb, `events/schedules/${Date.now()}`), {
+        timestamp,
+        action: "delete",
+        scheduleId: id,
+        message: `Schedule ${id} deleted`,
+      });
+    } catch (err) {
+      console.error("Failed to delete schedule in RTDB", err);
       showMessage("⚠️ Failed to delete schedule");
     }
   };
@@ -131,75 +282,135 @@ export default function SchedulePage() {
 
   return (
     <>
-      {/* Navbar */}
-      <Navbar
-        bg="success"
-        variant="dark"
-        className="shadow-sm mb-4"
-        style={{ background: "linear-gradient(90deg,#4caf50,#81c784)" }}
-      >
-        <Container>
-          <Navbar.Brand className="fw-bold text-white">
-            📅 Watering Schedules
-          </Navbar.Brand>
-          <Nav className="me-auto">
-            <Nav.Link as={Link} to="/dashboard">
-              🏠 Dashboard
-            </Nav.Link>
-            <Nav.Link as={Link} to="/schedules">
-              📅 Schedules
-            </Nav.Link>
-            <Nav.Link as={Link} to="/logs">
-              📜 Logs
-            </Nav.Link>
-          </Nav>
-        </Container>
-      </Navbar>
-
       <Container>
-        <Row className="g-4">
+        <Navbar expand="lg" className="floating-nav">
+          <Container fluid>
+            <Navbar.Brand className="brand-text fs-3">
+              🌱 IOT-RWMIS
+            </Navbar.Brand>
+            <Navbar.Toggle aria-controls="basic-navbar-nav" />
+            <Navbar.Collapse id="basic-navbar-nav">
+              <Nav className="ms-auto align-items-center">
+                <Nav.Link
+                  as={Link}
+                  to="/dashboard"
+                  className={`mx-2 fw-semibold text-dark ${
+                    location.pathname === "/dashboard" ? "nav-active" : ""
+                  }`}
+                >
+                  Dashboard
+                </Nav.Link>
+                <Nav.Link
+                  as={Link}
+                  to="/schedules"
+                  className={`mx-2 text-secondary ${
+                    location.pathname === "/schedules" ? "nav-active" : ""
+                  }`}
+                >
+                  Schedules
+                </Nav.Link>
+                <Nav.Link
+                  as={Link}
+                  to="/logs"
+                  className={`mx-2 text-secondary ${
+                    location.pathname === "/logs" ? "nav-active" : ""
+                  }`}
+                >
+                  Logs
+                </Nav.Link>
+                <Nav.Link
+                  as={Link}
+                  to="/settings"
+                  className={`mx-2 text-secondary ${
+                    location.pathname === "/settings" ? "nav-active" : ""
+                  }`}
+                >
+                  Setting
+                </Nav.Link>
+                <Button
+                  variant="outline-danger"
+                  size="sm"
+                  className="ms-3 rounded-pill px-4"
+                  onClick={() => {
+                    localStorage.removeItem("token");
+                    nav("/login");
+                  }}
+                >
+                  Logout
+                </Button>
+              </Nav>
+            </Navbar.Collapse>
+          </Container>
+        </Navbar>
+      </Container>
+
+      <Container className="pb-5 mt-4">
+        <Row className="g-4 justify-content-center">
           {/* Add Form Card */}
-          <Col md={4}>
+          <Col md={4} lg={3}>
             <motion.div
               variants={cardVariants}
               initial="hidden"
               animate="visible"
             >
-              <Card className="shadow-lg border-0 rounded-4">
+              <Card className="glass-card border-0">
                 <Card.Header className="bg-success bg-opacity-75 text-white">
                   ➕ Add Schedule
                 </Card.Header>
                 <Card.Body>
                   <Form onSubmit={handleSubmit}>
-                    <Form.Group className="mb-3">
-                      <Form.Label>Start Time</Form.Label>
+                    <InputGroup className="mb-3">
+                      <InputGroup.Text>⏰</InputGroup.Text>
                       <Form.Control
                         type="time"
                         value={startTime}
                         onChange={(e) => setStartTime(e.target.value)}
                         required
                       />
-                    </Form.Group>
-                    <Form.Group className="mb-3">
-                      <Form.Label>Duration (minutes)</Form.Label>
-                      <Form.Control
-                        type="number"
-                        value={duration}
-                        onChange={(e) => setDuration(Number(e.target.value))}
-                        required
-                      />
-                    </Form.Group>
-                    <Form.Group className="mb-3">
-                      <Form.Label>Days of Week</Form.Label>
-                      <Form.Control
-                        type="text"
-                        placeholder="Mon,Wed,Fri"
-                        value={daysOfWeek}
-                        onChange={(e) => setDaysOfWeek(e.target.value)}
-                      />
-                    </Form.Group>
-                    <Button type="submit" variant="success" className="w-100">
-                      Add
+                    </InputGroup>
+
+                    <div className="mb-3">
+                      <Form.Label>Days</Form.Label>
+                      <div className="d-flex gap-2 flex-wrap mt-2">
+                        {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
+                          (d) => (
+                            <Button
+                              key={d}
+                              size="sm"
+                              variant={
+                                daysOfWeek
+                                  .split(",")
+                                  .map((s) => s.trim())
+                                  .includes(d)
+                                  ? "success"
+                                  : "outline-secondary"
+                              }
+                              onClick={() => toggleDay(d)}
+                            >
+                              {d}
+                            </Button>
+                          )
+                        )}
+                      </div>
+                      <Form.Text className="text-muted">
+                        Select days (leave empty for every day)
+                      </Form.Text>
+                    </div>
+
+                    <Button
+                      type="submit"
+                      variant="success"
+                      className="w-100"
+                      disabled={addLoading}
+                    >
+                      {addLoading ? (
+                        <>
+                          <Spinner animation="border" size="sm" />{" "}
+                          <span className="ms-2">Adding...</span>
+                        </>
+                      ) : (
+                        "Add Schedule"
+                      )}
                     </Button>
                   </Form>
                 </Card.Body>
@@ -214,7 +425,7 @@ export default function SchedulePage() {
               initial="hidden"
               animate="visible"
             >
-              <Card className="shadow-lg border-0 rounded-4">
+              <Card className="glass-card border-0">
                 <Card.Header className="bg-info bg-opacity-75 text-white">
                   Existing Schedules
                 </Card.Header>
@@ -230,7 +441,6 @@ export default function SchedulePage() {
                       <thead>
                         <tr>
                           <th>Start Time</th>
-                          <th>Duration</th>
                           <th>Days</th>
                           <th>Actions</th>
                         </tr>
@@ -239,7 +449,6 @@ export default function SchedulePage() {
                         {schedules.map((s) => (
                           <tr key={s.id}>
                             <td>{s.start_time}</td>
-                            <td>{s.duration} mins</td>
                             <td>{s.days_of_week || "Any"}</td>
                             <td>
                               <Button
@@ -289,21 +498,7 @@ export default function SchedulePage() {
                   required
                 />
               </Form.Group>
-              <Form.Group className="mb-3">
-                <Form.Label>Duration (minutes)</Form.Label>
-                <Form.Control
-                  type="number"
-                  value={editingSchedule?.duration || 0}
-                  onChange={(e) =>
-                    setEditingSchedule((prev) =>
-                      prev
-                        ? { ...prev, duration: Number(e.target.value) }
-                        : prev
-                    )
-                  }
-                  required
-                />
-              </Form.Group>
+
               <Form.Group className="mb-3">
                 <Form.Label>Days of Week</Form.Label>
                 <Form.Control

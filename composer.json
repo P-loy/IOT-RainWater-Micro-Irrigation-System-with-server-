@@ -1,6 +1,0 @@
-{
-    "require": {
-        "laravel/sanctum": "^4.2",
-        "guzzlehttp/guzzle": "^7.9"
-    }
-}

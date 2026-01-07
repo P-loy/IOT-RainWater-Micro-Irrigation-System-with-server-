@@ -1,8 +1,67 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Button, Card, Col, Container, Form, Row } from "react-bootstrap";
 import { login, register } from "../lib/api";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+
+const styles = `
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
+
+  body {
+    background-color: #bdffc4; /* Soft Mint Cream */
+    color: #2d3632ff;
+    font-family: 'Poppins', sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: #A7C4BC; border-radius: 10px; }
+
+  /* Glassmorphism Card Style */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+    border-radius: 24px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  
+  .glass-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.12);
+  }
+
+  /* Floating Navbar */
+  .floating-nav {
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(10px);
+    border-radius: 50px;
+    margin-top: 20px;
+    padding: 10px 30px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+  }
+
+  .brand-text {
+    background: -webkit-linear-gradient(45deg, #2d6a4f, #40916c);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800;
+  }
+
+  /* Custom Switch */
+  .form-switch .form-check-input {
+    width: 3em;
+    height: 1.5em;
+    background-color: #e9ecef;
+    border-color: #dee2e6;
+  }
+  .form-switch .form-check-input:checked {
+    background-color: #52b788;
+    border-color: #52b788;
+  }
+`;
 
 export default function LoginPage() {
   const nav = useNavigate();
@@ -12,6 +71,16 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const styleSheet = document.createElement("style");
+    styleSheet.innerText = styles;
+    document.head.appendChild(styleSheet);
+
+    return () => {
+      document.head.removeChild(styleSheet);
+    };
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +111,7 @@ export default function LoginPage() {
     <div
       className="min-vh-100 d-flex align-items-center justify-content-center"
       style={{
-        background: "linear-gradient(135deg, #a8e063, #56ab2f)", // 🌿 green gradient
+        background: "linear-gradient(135deg, #bdffc4)", // 🌿 green gradient
         backgroundSize: "cover",
       }}
     >
@@ -54,10 +123,10 @@ export default function LoginPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6 }}
             >
-              <Card className="shadow-lg border-0 rounded-4">
+              <Card className="glass-card border-0 rounded-4">
                 <Card.Body>
-                  <h3 className="text-center mb-3 text-success fw-bold">
-                    🌱 Smart Watering
+                  <h3 className="text-center mb-3 brand-text fw-bold">
+                    🌱 IOT-RWMIS
                   </h3>
                   <p className="text-center text-muted mb-4">
                     {mode === "login"

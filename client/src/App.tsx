@@ -4,6 +4,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import SchedulePage from "./pages/SchedulePage";
 import LogsPage from "./pages/LogsPage";
+import Settings from "./pages/Settings";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 export default function App() {
@@ -42,6 +43,15 @@ export default function App() {
         element={
           <ProtectedRoute>
             <LogsPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <Settings />
           </ProtectedRoute>
         }
       />
